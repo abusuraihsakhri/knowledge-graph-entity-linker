@@ -3,13 +3,25 @@ Command Line Interface for Knowledge Graph Entity Linker.
 """
 import argparse
 import csv
-import json
 import sys
+from pathlib import Path
 from agents.models import SystemTaskPayload
 from agents.supervisor import SystemSupervisor
 from agents.base import AuditLogger
 
 supervisor = SystemSupervisor(model_provider="mock")
+
+
+def _resolve_safe_path(path_str: str, must_exist: bool = False) -> Path:
+    """Resolve a user-supplied path safely, preventing path traversal."""
+    path = Path(path_str).resolve()
+    cwd = Path.cwd().resolve()
+    if must_exist and not path.exists():
+        raise FileNotFoundError(f"Input file not found: {path_str}")
+    # Prevent path traversal outside the working directory
+    if not str(path).startswith(str(cwd)):
+        raise ValueError(f"Path '{path_str}' is outside the working directory.")
+    return path
 
 
 def main(argv=None):
@@ -80,22 +92,29 @@ def main(argv=None):
         return 0
 
     if args.command == "batch":
-        with open(args.input, mode="r", encoding="utf-8-sig") as f:
+        in_path = _resolve_safe_path(args.input, must_exist=True)
+        out_path = _resolve_safe_path(args.output, must_exist=False)
+
+        with open(in_path, mode="r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             fieldnames = list(reader.fieldnames or [])
             rows = list(reader)
 
         out_fields = fieldnames + ["overall_urgency", "integrity_status", "total_alerts", "audit_hash"]
         out_rows = []
-        for r in rows:
-            payload = SystemTaskPayload(
-                task_id=r.get("task_id", "TASK-01"),
-                target_identifier=r.get("target_identifier", "TARGET-01"),
-                primary_metric=float(r.get("primary_metric", 15.0)),
-                secondary_metric=float(r.get("secondary_metric", 5.0)),
-                status_descriptor=r.get("status_descriptor", "NOMINAL"),
-                is_critical_flag=bool(r.get("is_critical_flag", False)),
-            )
+        for idx, r in enumerate(rows):
+            try:
+                payload = SystemTaskPayload(
+                    task_id=r.get("task_id", f"TASK-{idx+1:03d}"),
+                    target_identifier=r.get("target_identifier", "TARGET-01"),
+                    primary_metric=float(r.get("primary_metric", 15.0)),
+                    secondary_metric=float(r.get("secondary_metric", 5.0)),
+                    status_descriptor=r.get("status_descriptor", "NOMINAL"),
+                    is_critical_flag=str(r.get("is_critical_flag", "")).lower() in ("true", "1", "yes"),
+                )
+            except (ValueError, TypeError) as e:
+                print(f"Warning: Skipping row {idx+1} due to invalid data: {e}")
+                continue
             dossier = supervisor.process_task(payload)
             row_dict = dict(r)
             row_dict["overall_urgency"] = dossier.overall_urgency.value
@@ -104,11 +123,11 @@ def main(argv=None):
             row_dict["audit_hash"] = dossier.audit_hash
             out_rows.append(row_dict)
 
-        with open(args.output, mode="w", encoding="utf-8", newline="") as f:
+        with open(out_path, mode="w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=out_fields)
             writer.writeheader()
             writer.writerows(out_rows)
-        print(f"Processed {len(out_rows)} records -> {args.output}")
+        print(f"Processed {len(out_rows)} records -> {out_path}")
         return 0
 
     if args.command == "serve":

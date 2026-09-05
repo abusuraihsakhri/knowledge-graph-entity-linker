@@ -3,12 +3,23 @@ Command-Line Interface for GraphLinker AI: Continuous Named Entity Extraction & 
 """
 import argparse
 import csv
-import json
 import sys
+from pathlib import Path
 from .models import FrontierPayload
 from .agents import GraphLinkerCoordinator
 
 coordinator = GraphLinkerCoordinator()
+
+
+def _resolve_safe_path(path_str: str, must_exist: bool = False) -> Path:
+    """Resolve a user-supplied path safely, preventing path traversal."""
+    path = Path(path_str).resolve()
+    cwd = Path.cwd().resolve()
+    if must_exist and not path.exists():
+        raise FileNotFoundError(f"Input file not found: {path_str}")
+    if not str(path).startswith(str(cwd)):
+        raise ValueError(f"Path '{path_str}' is outside the working directory.")
+    return path
 
 
 def main(argv=None):
@@ -69,22 +80,29 @@ def main(argv=None):
         return 0
 
     if args.command == "batch":
-        with open(args.input, mode="r", encoding="utf-8-sig") as f:
+        in_path = _resolve_safe_path(args.input, must_exist=True)
+        out_path = _resolve_safe_path(args.output, must_exist=False)
+
+        with open(in_path, mode="r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             fieldnames = list(reader.fieldnames or [])
             rows = list(reader)
 
         out_fields = fieldnames + ["overall_status", "total_alerts", "critical_count", "consensus_summary"]
         out_rows = []
-        for r in rows:
-            payload = FrontierPayload(
-                task_id=r.get("task_id", "TASK-01"),
-                target_identifier=r.get("target_identifier", "TARGET-01"),
-                primary_metric=float(r.get("primary_metric", 15.0)),
-                secondary_metric=float(r.get("secondary_metric", 5.0)),
-                status_descriptor=r.get("status_descriptor", "NOMINAL"),
-                is_critical_flag=bool(r.get("is_critical_flag", False)),
-            )
+        for idx, r in enumerate(rows):
+            try:
+                payload = FrontierPayload(
+                    task_id=r.get("task_id", f"TASK-{idx+1:03d}"),
+                    target_identifier=r.get("target_identifier", "TARGET-01"),
+                    primary_metric=float(r.get("primary_metric", 15.0)),
+                    secondary_metric=float(r.get("secondary_metric", 5.0)),
+                    status_descriptor=r.get("status_descriptor", "NOMINAL"),
+                    is_critical_flag=str(r.get("is_critical_flag", "")).lower() in ("true", "1", "yes"),
+                )
+            except (ValueError, TypeError) as e:
+                print(f"Warning: Skipping row {idx+1} due to invalid data: {e}")
+                continue
             dossier = coordinator.process(payload)
             row_dict = dict(r)
             row_dict["overall_status"] = dossier["overall_status"]
@@ -93,11 +111,11 @@ def main(argv=None):
             row_dict["consensus_summary"] = dossier["consensus_summary"]
             out_rows.append(row_dict)
 
-        with open(args.output, mode="w", encoding="utf-8", newline="") as f:
+        with open(out_path, mode="w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=out_fields)
             writer.writeheader()
             writer.writerows(out_rows)
-        print(f"Processed {len(out_rows)} records -> {args.output}")
+        print(f"Processed {len(out_rows)} records -> {out_path}")
         return 0
 
     if args.command == "serve":

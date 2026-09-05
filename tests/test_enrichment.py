@@ -30,3 +30,37 @@ def test_enrichment_threshold_escalation():
     for k, v in res.items():
         assert v.status in ["WARNING", "CRITICAL_ALERT"]
         assert len(v.alerts) > 0
+
+
+def test_enrichment_invalid_threshold_rejected():
+    """Engines must reject non-positive thresholds."""
+    import pytest
+    with pytest.raises(ValueError):
+        EntityLinkingConfidenceScoringEngine(threshold=-1.0)
+    with pytest.raises(ValueError):
+        EntityLinkingConfidenceScoringEngine(threshold=0)
+
+
+def test_enrichment_engine_history_tracked():
+    """Engeach engine records evaluation history."""
+    engine = EntityLinkingConfidenceScoringEngine(threshold=1.0)
+    assert len(engine.history) == 0
+    engine.evaluate(0.5)
+    engine.evaluate(1.5)
+    assert len(engine.history) == 2
+    assert engine.history[0].status == "OPTIMAL"
+    assert engine.history[1].status == "WARNING"
+
+
+def test_enrichment_suite_returns_all_features():
+    """execute_all returns all five enrichment features."""
+    suite = KnowledgegraphentitylinkerEnrichmentSuite()
+    res = suite.execute_all(primary_val=0.5, secondary_val=0.2)
+    expected_keys = {
+        "EntityLinkingConfidenceScoringEngine",
+        "EntityDeduplicationEngine",
+        "EntityHistoryTrackingEngine",
+        "GraphExportFormatsEngine",
+        "GraphStatisticsDashboardEngine",
+    }
+    assert set(res.keys()) == expected_keys
