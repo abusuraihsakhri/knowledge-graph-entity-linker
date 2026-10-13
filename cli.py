@@ -19,7 +19,7 @@ def _resolve_safe_path(path_str: str, must_exist: bool = False) -> Path:
     if must_exist and not path.exists():
         raise FileNotFoundError(f"Input file not found: {path_str}")
     # Prevent path traversal outside the working directory
-    if not str(path).startswith(str(cwd)):
+    if not path.is_relative_to(cwd):
         raise ValueError(f"Path '{path_str}' is outside the working directory.")
     return path
 
@@ -100,7 +100,9 @@ def main(argv=None):
             fieldnames = list(reader.fieldnames or [])
             rows = list(reader)
 
-        out_fields = fieldnames + ["overall_urgency", "integrity_status", "total_alerts", "audit_hash"]
+        if not fieldnames:
+            raise ValueError("Input CSV must contain a header row.")
+        out_fields = list(dict.fromkeys(fieldnames + ["overall_urgency", "integrity_status", "total_alerts", "audit_hash"]))
         out_rows = []
         for idx, r in enumerate(rows):
             try:

@@ -1,203 +1,92 @@
 # Knowledge Graph Entity Linker
 
-> **Domain:** Clinical Decision Support & Biomedical Computing
-> **Reference Guidelines & Standards:** `Standard Clinical Formulations & ISO/IEC Quality Frameworks`
+Deterministic entity-name matching and metric-audit utilities with a static browser interface, Python CLI tools, and a FastAPI service.
 
-<div align="center">
+## Features
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB.svg?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688.svg?logo=fastapi&logoColor=white)
-![Audit Trail](https://img.shields.io/badge/Audit-HMAC--SHA256_Tamper--Evident-brightgreen.svg)
-![Zero-PHI Guard](https://img.shields.io/badge/Guard-Zero--PHI_Outbound-blue.svg)
-![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)
+- **Browser entity linker:** Match user-supplied names and aliases against text; return mention offsets, entity IDs, unique nodes, and co-mention edges. Download results as JSON. The implementation is lexical and does not perform trained NER, entity disambiguation, ontology reasoning, or verified relationship extraction.
+- **Browser metric audit:** Exercise the same basic thresholds as the Python `agents` workers locally, without a backend. These results are **unsigned**.
+- **Python audit:** Evaluate numeric metrics and descriptor flags with three deterministic workers. Generate an in-memory HMAC-SHA256 audit chain.
+- **CLI batch mode:** Process CSV tasks and export annotated CSV files.
+- **FastAPI:** Expose `/health`, `/metrics`, `/api/audit`, `/api/chat`, and `/api/audit/logs`.
 
-</div>
+The project currently has two distinct Python implementations: `agents/` (the root `cli.py` and API) and `graph_linker/` (the installed CLI command). They have different thresholds and dossier schemas. Neither Python implementation performs the lexical entity linking shown in the browser.
 
----
+## Browser use
 
-## 📖 What It Does
+Open `web/index.html` locally, or use the GitHub Pages deployment once it is enabled and verified. The app requires a modern browser with ES2018+ support. Enter text and a JSON array of vocabulary records:
 
-**Knowledge Graph Entity Linker** is an advanced analytical and computational platform implementing continuous clinical named entity extraction, multi-worker consensus evaluation, and RDF/property graph building.
+```json
+[
+  {"id": "GENE-1", "label": "EGFR", "type": "Gene",
+   "aliases": ["epidermal growth factor receptor"]},
+  {"id": "DRUG-1", "label": "erlotinib", "type": "Drug"}
+]
+```
 
----
+Select **Entity linking**, run the match, then **Export JSON**. Alternatively, select **Metric audit demo** to check the local deterministic thresholds. Co-mention edges mean only that both names appear in the supplied text.
 
-## ⚙️ Key Capabilities & Algorithmic Modules
+All browser-side evaluation is performed in JavaScript; Pyodide and a Python server are not necessary for these workflows. The browser implementation does not implement the signed Python audit trail.
 
-- **Deterministic Calculation Engine:** Strict compliance with standard reference formulations and thresholds.
-- **Risk & Urgency Classification:** Multi-tier categorization with automated clinical/operational action recommendations.
-- **Validation & Guardrails:** Rigorous input bounds checking and anomaly detection.
-- **Multi-Worker Consensus:** Three specialized workers (InvariantQC, SafetyEscalation, ProtocolConformance) evaluate each task.
-- **Enrichment Suite:** Confidence scoring, entity deduplication, history tracking, graph export, and statistics dashboard.
+## Python installation
 
----
-
-## 💻 Installation
+Requires Python 3.9 or newer.
 
 ```bash
-# Clone the repository
 git clone https://github.com/abusuraihsakhri/knowledge-graph-entity-linker.git
 cd knowledge-graph-entity-linker
-
-# Install dependencies
-pip install fastapi uvicorn pydantic pytest
-
-# Set the audit signing key (minimum 16 characters)
-export AUDIT_SECRET_KEY="your-strong-random-key-here"
+python -m pip install -e ".[server,test]"
 ```
 
----
+### CLI and API
 
-## 💻 CLI Quickstart & Usage
-
-### 1. Guided Interactive Mode
 ```bash
-python cli.py
-```
-
-### 2. Direct Parameterized Evaluation
-```bash
-python cli.py --task-id <value> --target <value> --primary <value> --secondary <value>
-```
-
-### 3. CLI Subcommands
-
-#### Audit (single task evaluation)
-```bash
-python cli.py audit --task-id TASK-001 --target KEY-01 --primary 28.5 --secondary 14.2 --critical --status DISCORDANT
-```
-
-#### Chat (supervisory query)
-```bash
-python cli.py chat "What is the system status?"
-```
-
-#### Batch (CSV processing)
-```bash
+python cli.py audit --task-id T-001 --target SPECIMEN-01 --primary 28 --secondary 13
 python cli.py batch -i sample.csv -o results.csv
-```
-
-#### Verify Audit Trail
-```bash
 python cli.py verify-audit
-```
-
-#### Serve (FastAPI REST server)
-```bash
+python cli.py chat "system status"
 python cli.py serve --host 127.0.0.1 --port 8000
 ```
 
-### Parameter Reference
-- `--task-id`: Specifies input measurement or parameter value.
-- `--target`: Specifies input measurement or parameter value.
-- `--primary`: Specifies input measurement or parameter value (float).
-- `--secondary`: Specifies input measurement or parameter value (float).
-- `--critical`: Triggers emergency escalation flag.
-- `--status`: Status descriptor (e.g., NOMINAL, DISCORDANT, ANOMALY).
+The installed `knowledge-graph-entity-linker` command uses `graph_linker.cli`, whose evaluation criteria differ from the root `cli.py`.
 
-### Input Data Schema
+The FastAPI service is exposed on port 8000. The `/metrics` endpoint returns JSON counters, not Prometheus exposition text. `/api/chat` uses a deterministic mock response and **does not** connect to Ollama or cloud LLM providers.
 
-| Field | Description | Requirement |
-|:------|:------------|:------------|
-| `task_id` | Parameter / observation metric | Required |
-| `target_identifier` | Parameter / observation metric | Required |
-| `primary_metric` | Parameter / observation metric | Required |
-| `secondary_metric` | Parameter / observation metric | Required |
-| `is_critical_flag` | Parameter / observation metric | Required |
-| `status_descriptor` | Parameter / observation metric | Required |
-
----
-
-## 🛡️ Security & Enterprise Architecture
-
-* **Zero-PHI Outbound Interceptor:** Active AST and regex inspection blocking SSNs, MRNs, phone numbers, and patient identifiers. PHI is also automatically redacted from outbound text.
-* **Tamper-Evident HMAC-SHA256 Audit Trail:** Chained, cryptographically signed logs for every evaluation and state transition. Requires a persistent `AUDIT_SECRET_KEY` environment variable (minimum 16 characters).
-* **Air-Gapped LLM Reasoning Adapter:** Agnostic integration for local Ollama instances (`llama3`, `mistral`), Claude 3.5 Sonnet, GPT-4o, and deterministic test mocks.
-* **Active Learning Bayesian Calibration:** Dynamic tracker updating worker reliability weights and monitoring Brier calibration drift.
-* **FastAPI & Prometheus Telemetry:** Exposes OpenAPI 3.1 REST endpoints and operational Prometheus metrics (`/metrics`).
-* **Path Traversal Protection:** All CLI file operations resolve and validate paths against the working directory.
-
----
-
-## 🔐 Environment Variables
-
-| Variable | Required | Description |
-|:---------|:---------|:------------|
-| `AUDIT_SECRET_KEY` | Recommended | HMAC-SHA256 audit signing key (min 16 chars). If unset, an ephemeral key is generated with a warning. |
-| `MODEL_PROVIDER` | No | LLM provider: `mock` (default), `ollama`, `claude`, `openai` |
-
----
-
-## 🧪 Testing & Verification
-
-Run the automated test suite:
+Set a random, persistent `AUDIT_SECRET_KEY` (at least 16 characters) when audit integrity must persist across restarts:
 
 ```bash
-pytest -v
+export AUDIT_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
 ```
 
-Execute high-throughput batch simulation benchmarks:
+Without it, an ephemeral key is generated and logs cannot be verified across process restarts. The in-memory audit trail itself is not persistent storage.
+
+### Container
 
 ```bash
-python simulator.py --tasks 1000 --concurrency 8
-```
-
----
-
-## 🐳 Container Deployment
-
-```bash
-# Copy and configure environment
 cp .env.example .env
-# Edit .env to set AUDIT_SECRET_KEY and MODEL_PROVIDER
-
-# Build and run
+# Replace AUDIT_SECRET_KEY with a strong generated value.
 docker compose up --build
 ```
 
-Or manually:
+## Tests
 
 ```bash
-docker build -t knowledge-graph-entity-linker .
-docker run -p 8000:8000 --env-file .env knowledge-graph-entity-linker
+python -m pytest -q
+node --check web/core.js
+node --check web/app.js
+node --test web/core.test.cjs
 ```
 
----
+GitHub Actions runs the Python suite on Python 3.10–3.13 and checks the browser-side JavaScript.
 
-## 📁 Project Structure
+## Privacy and limitations
 
-```
-knowledge-graph-entity-linker/
-├── agents/                  # Core analytical workers & security
-│   ├── api.py               # FastAPI REST endpoints
-│   ├── base.py              # PHI guard, HMAC audit trail
-│   ├── models.py            # Pydantic data models
-│   ├── supervisor.py        # Multi-worker orchestrator
-│   ├── workers.py           # Specialized evaluation workers
-│   ├── llm_factory.py       # LLM provider factory
-│   ├── learning.py          # Bayesian calibration engine
-│   ├── metrics.py           # Prometheus metrics collector
-│   └── streamer.py          # WebSocket telemetry broadcaster
-├── graph_linker/            # Alternative frontend engine
-│   ├── agents.py            # Sub-agent hierarchy
-│   ├── engine.py            # Domain evaluation engine
-│   ├── models.py            # Dataclass models
-│   ├── cli.py               # Alternative CLI
-│   └── server.py            # FastAPI app factory
-├── tests/                   # Pytest test suite
-├── web/                     # Operations console (HTML)
-├── cli.py                   # Main CLI entry point
-├── enrichment.py            # Enrichment feature suite
-├── simulator.py             # High-throughput stress tester
-├── sample.csv               # Sample batch input
-├── sample_payload.json      # Sample API payload
-├── Dockerfile               # Container build
-├── docker-compose.yml       # Container orchestration
-└── pyproject.toml           # Project metadata
-```
+- The browser UI does not submit text, vocabulary records, or audit data to a server. It does not use third-party scripts.
+- Python API requests are processed by the server you run; do not expose it to the public internet without appropriate access controls and infrastructure.
+- The identifier guard uses a limited set of regular-expression patterns. **It is not a validated de-identification tool**, and may miss protected health information.
+- The numeric audit thresholds are software demonstration rules, **not medically validated reference values** or proof of CAP, CLSI, ISO, RDF, or OWL conformity.
+- Treat co-mention edges as lexical observations only; no causal or biological relation is inferred.
 
----
+## Technology and license
 
-## 📄 License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+Python, Pydantic, FastAPI, pytest, vanilla JavaScript, HTML/CSS, and GitHub Actions. The static UI does not need a frontend build step. Licensed under [MIT](LICENSE).
