@@ -63,3 +63,33 @@ def test_sibling_directory_prefix_rejected(tmp_path, monkeypatch, checker):
 def test_non_mock_providers_are_not_silently_mocked():
     with pytest.raises(ValueError, match="Only the deterministic mock"):
         LLMFactory.create("openai")
+
+
+def test_api_audit_accepts_valid_payload_and_blocks_sensitive_metadata():
+    from fastapi.testclient import TestClient
+    from agents.api import app
+    client = TestClient(app)
+    ok = client.post("/api/audit", json={
+        "task_id": "API-001", "target_identifier": "SPECIMEN-001",
+        "primary_metric": 12.0, "attributes": {"method": "reference"},
+    })
+    assert ok.status_code == 200
+    assert ok.json()["overall_urgency"] == "ROUTINE"
+
+    unsafe = client.post("/api/audit", json={
+        "task_id": "API-002", "target_identifier": "SPECIMEN-002",
+        "primary_metric": 12.0, "attributes": {"email": "patient@example.com"},
+    })
+    assert unsafe.status_code == 422
+    assert "patient@example.com" not in unsafe.text
+
+
+def test_batch_output_path_symlinks_cannot_escape(tmp_path, monkeypatch):
+    work = tmp_path / "work"
+    outside = tmp_path / "outside"
+    work.mkdir()
+    outside.mkdir()
+    (work / "alias").symlink_to(outside, target_is_directory=True)
+    monkeypatch.chdir(work)
+    with pytest.raises(ValueError, match="outside the working directory"):
+        main_safe_path("alias/export.csv")
